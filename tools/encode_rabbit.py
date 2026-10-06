@@ -10,6 +10,18 @@ frame = Image.open(ROOT / "assets/rabbit-69x68.png")
 if frame.size != (69, 68) or frame.mode != "1":
     raise ValueError("Expected a 69x68 1-bit monochrome firmware artwork")
 
+# GEM rotates its status canvas clockwise by 90 degrees (LVGL angle 900).
+# Artwork is drawn directly, so encode the same rotation into its pixels.
+# The extra 69th column is blank padding; discard it to keep a 68x68 sprite
+# within the panel's native 68-pixel height, without clipping the rabbit.
+assert all(frame.getpixel((68, y)) != 0 for y in range(68))
+upright = frame.crop((0, 0, 68, 68))
+native = Image.new("1", (68, 68), 1)
+for y in range(68):
+    for x in range(68):
+        native.putpixel((x, y), upright.getpixel((y, 67 - x)))
+frame = native
+
 # LVGL rows are byte-aligned, most significant bit first; index 1 is black.
 stride = (frame.width + 7) // 8
 pixels = bytearray(stride * frame.height)
@@ -38,7 +50,7 @@ static const lv_img_dsc_t rabbit_image = {
     .header.cf = LV_IMG_CF_INDEXED_1BIT,
     .header.always_zero = 0,
     .header.reserved = 0,
-    .header.w = 69,
+    .header.w = 68,
     .header.h = 68,
     .data_size = sizeof(rabbit_image_map),
     .data = rabbit_image_map,
@@ -52,5 +64,11 @@ for y in range(frame.height):
     for x in range(frame.width):
         decoded.putpixel((x, y), 0 if pixels[y * stride + x // 8] & (1 << (7-x%8)) else 1)
 assert decoded.convert("L").tobytes() == frame.convert("L").tobytes()
-decoded.resize((552, 544), Image.Resampling.NEAREST).save(ROOT / "assets/rabbit-preview.png")
-print(f"Encoded {frame.size}, 2 colors, {len(pixels) + 8} bytes including palette; roundtrip passed")
+decoded.save(ROOT / "assets/rabbit-native-68x68.png")
+visible = Image.new("1", (68, 68), 1)
+for y in range(68):
+    for x in range(68):
+        visible.putpixel((x, y), decoded.getpixel((67 - y, x)))
+assert visible.convert("L").tobytes() == upright.convert("L").tobytes()
+visible.resize((544, 544), Image.Resampling.NEAREST).save(ROOT / "assets/rabbit-preview.png")
+print(f"Encoded {frame.size}, 2 colors, {len(pixels) + 8} bytes including palette; rotation and roundtrip passed")
